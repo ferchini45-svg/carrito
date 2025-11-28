@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Carrito</title>
+<style>
+body{background:#faf7f5;font-family:Arial;padding:20px;color:#444}
+h1{text-align:center;color:#5a6b78}
+.container{max-width:900px;margin:auto}
+table{width:100%;border-collapse:collapse;margin-top:20px}
+th{background:#cfe0f3;padding:10px;color:#3f505f;text-align:left}
+td{background:#f3f7fa;padding:10px;vertical-align:middle}
+.total{text-align:right;margin-top:12px;font-weight:bold}
+.button{background:#a7c7e7;padding:8px 12px;border-radius:8px;color:white;text-decoration:none}
+.qtyinput{width:70px;padding:6px;border-radius:6px;border:1px solid #c7d8e6}
+.smallbtn{background:#f0b6b6;color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer}
+
+/* imagen del carrito */
+.prodimg{
+  width:70px;
+  height:70px;
+  object-fit:cover;
+  border-radius:8px;
+  box-shadow:0 2px 4px rgba(0,0,0,0.1);
+}
+</style>
+</head>
+
+<body>
+<h1>Carrito</h1>
+<div class="container">
+<nav style="text-align:center;margin-bottom:12px">
+  <a class="button" href="/">Seguir comprando</a>
+  <% if(!user) { %>
+    <a class="button" href="/login">Iniciar sesión</a>
+  <% } else { %>
+    <a class="button" href="/historial">Historial</a>
+  <% } %>
+</nav>
+
+<table>
+  <tr>
+    <th>Imagen</th>
+    <th>Producto</th>
+    <th>Cantidad</th>
+    <th>Precio unitario</th>
+    <th>Subtotal</th>
+    <th>Acciones</th>
+  </tr>
+
+  <% Object.keys(cart || {}).forEach(k=>{ const it = cart[k]; %>
+  <tr data-id="<%= it.producto_id %>">
+
+    <!-- imagen del producto -->
+    <td>
+      <% if (it.imagen) { %>
+        <img src="<%= it.imagen %>" class="prodimg">
+      <% } else { %>
+        <img src="https://via.placeholder.com/70x70?text=Sin+Img" class="prodimg">
+      <% } %>
+    </td>
+
+    <td><%= it.nombre %></td>
+
+    <td>
+      <input class="qtyinput" type="number" min="0" value="<%= it.cantidad %>"
+             onchange="updateQty(<%= it.producto_id %>, this.value)">
+    </td>
+
+    <td>$<%= Number(it.precio).toFixed(2) %></td>
+
+    <td class="subtotal">$<%= (it.precio * it.cantidad).toFixed(2) %></td>
+
+    <td>
+      <button class="smallbtn" onclick="removeItem(<%= it.producto_id %>)">Eliminar</button>
+    </td>
+  </tr>
+  <% }) %>
+
+</table>
+
+<div class="total">Total: $<span id="total"><%= total.toFixed(2) %></span></div>
+
+<div style="text-align:right;margin-top:12px">
+  <button onclick="checkout()" style="background:#5ab39c;color:white;padding:10px 16px;border:none;border-radius:8px">
+    Pagar
+  </button>
+</div>
+</div>
+
+<script>
+async function updateQty(productoId, cantidad){
+  const res = await fetch('/cart/update', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:`producto_id=${productoId}&cantidad=${cantidad}`
+  });
+  const data = await res.json();
+  if(!data.ok) { alert('Error'); return; }
+
+  const row = document.querySelector('tr[data-id="'+productoId+'"]');
+  if(cantidad==0){
+    row.remove();
+  } else {
+    const it = data.cart[productoId];
+    row.querySelector('.subtotal').innerText = '$'+ (it.precio*it.cantidad).toFixed(2);
+  }
+  document.getElementById('total').innerText = data.total.toFixed(2);
+}
+
+async function removeItem(productoId){
+  const res = await fetch('/cart/remove', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:`producto_id=${productoId}`
+  });
+  const data = await res.json();
+  if(!data.ok) { alert('Error'); return; }
+  document.querySelector('tr[data-id="'+productoId+'"]').remove();
+  document.getElementById('total').innerText = data.total.toFixed(2);
+}
+
+async function checkout(){
+  const res = await fetch('/checkout', { method:'POST' });
+  const data = await res.json();
+  if(!data.ok){
+    alert(data.msg || 'Error o necesita iniciar sesión');
+    if(data.msg && data.msg.toLowerCase().includes('iniciar')) window.location='/login';
+    return;
+  }
+  window.location = `/pedido/${data.pedidoId}/ticket`;
+}
+</script>
+
+</body>
+</html>

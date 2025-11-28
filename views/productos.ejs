@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Productos</title>
+<style>
+/* diseño pastel y limpio */
+body{background:#faf7f5;font-family:Arial;padding:20px;color:#444}
+h1{color:#5a6b78;text-align:center}
+.nav{ text-align:center;margin-bottom:18px}
+.button{background:#a7c7e7;padding:8px 12px;border-radius:8px;color:white;text-decoration:none;border:none;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}
+.card{background:white;padding:14px;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,.06);text-align:center}
+.card h3{margin:8px 0}
+.card p{font-size:14px;color:#666}
+small{color:#999}
+.qty{width:60px;padding:6px;border-radius:6px;border:1px solid #c7d8e6;background:#f7fafc}
+.card img{width:100%;max-height:180px;object-fit:cover;border-radius:10px;margin-bottom:10px}
+</style>
+</head>
+
+<body>
+<h1>Productos</h1>
+
+<div class="nav">
+  <a class="button" href="/">Productos</a>
+  <a class="button" href="/cart">Carrito</a>
+
+  <% if(!user) { %>
+    <a class="button" href="/login">Iniciar sesión</a>
+    <a class="button" href="/register">Registrarse</a>
+  <% } else { %>
+    <span style="margin-left:10px">Hola, <%= user.nombre %></span>
+    <a class="button" href="/historial">Historial</a>
+    <a class="button" href="/logout">Salir</a>
+  <% } %>
+</div>
+
+<div class="grid">
+  <% productos.forEach(p=>{ %>
+    <div class="card">
+
+      <!-- Aquí mostramos la imagen -->
+      <% if (p.imagen) { %>
+        <img src="<%= p.imagen %>" alt="Imagen de <%= p.nombre %>">
+      <% } else { %>
+        <img src="https://via.placeholder.com/300x180?text=Sin+Imagen" alt="Sin imagen">
+      <% } %>
+
+      <h3><%= p.nombre %></h3>
+      <p><%= p.descripcion ? p.descripcion : '' %></p>
+      <p><strong>$<%= Number(p.precio).toFixed(2) %></strong></p>
+
+      <div style="margin-top:10px">
+        <input class="qty" type="number" min="1" value="1" id="qty-<%= p.id %>">
+        <button onclick="addToCart(<%= p.id %>)" class="button" style="margin-left:8px">Agregar</button>
+      </div>
+    </div>
+  <% }) %>
+</div>
+
+<script>
+async function addToCart(productoId){
+  const qty = document.getElementById('qty-'+productoId).value || 1;
+  const res = await fetch('/cart/add', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body: `producto_id=${productoId}&cantidad=${qty}`
+  });
+  const data = await res.json();
+  if(data.ok) alert('Producto agregado al carrito');
+  else alert('Error al agregar');
+}
+</script>
+
+</body>
+</html>

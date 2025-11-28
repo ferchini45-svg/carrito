@@ -1,0 +1,21 @@
+<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>Historial</title>
+<style>body{background:#faf7f5;font-family:Arial;padding:20px;color:#444}h1{text-align:center;color:#5a6b78}.card{background:white;padding:12px;border-radius:8px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.06)}</style>
+</head><body>
+<h1>Historial de Compras</h1>
+<nav style="text-align:center;margin-bottom:12px"><a style="background:#a7c7e7;color:white;padding:8px 12px;border-radius:8px;text-decoration:none" href="/">Productos</a></nav>
+
+<% pedidos.forEach(p=>{ %>
+  <div class="card">
+    <h3>Pedido #<%= p.id %> - $<%= Number(p.total).toFixed(2) %></h3>
+
+    <small>Fecha: <%= new Date(p.fecha).toLocaleString() %></small>
+    <ul>
+      <% p.items.forEach(it=>{ %>
+        <li><%= it.nombre %> — Cant: <%= it.cantidad %> — $<%= (it.precio_unit*it.cantidad).toFixed(2) %></li>
+      <% }) %>
+    </ul>
+    <a style="background:#5ab39c;color:white;padding:8px 12px;border-radius:8px;text-decoration:none" href="/pedido/<%= p.id %>/ticket">Descargar ticket (PDF)</a>
+  </div>
+<% }) %>
+
+</body></html>
