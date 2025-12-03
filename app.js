@@ -1,4 +1,3 @@
-
 require("dotenv").config();
 
 const express = require('express');
@@ -10,7 +9,7 @@ const bodyParser = require('body-parser');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json()); // <- importante para recibir JSON
+app.use(bodyParser.json());
 app.set('view engine', 'ejs');
 
 // ---------------- SESIONES ----------------
@@ -199,7 +198,7 @@ db.query('INSERT INTO pedidos (usuario_id, total) VALUES (?, ?)', [req.session.u
         if (err2) return res.json({ ok: false, msg: 'Error al guardar items' });
 
         req.session.cart = {};
-        res.json({ ok: true, pedidoId });
+        res.json({ ok: true, pedidoId: pedidoId });
     });
 });
 ```
@@ -225,9 +224,9 @@ db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id=
 
         doc.fontSize(18).text('Ticket de compra', { align: 'center' });
         doc.moveDown();
-        doc.fontSize(12).text(`Pedido: ${pedido.id}`);
-        doc.text(`Usuario: ${pedido.nombre} - ${pedido.correo}`);
-        doc.text(`Fecha: ${new Date(pedido.fecha).toLocaleString()}`);
+        doc.fontSize(12).text('Pedido: ' + pedido.id);
+        doc.text('Usuario: ' + pedido.nombre + ' - ' + pedido.correo);
+        doc.text('Fecha: ' + new Date(pedido.fecha).toLocaleString());
         doc.moveDown();
 
         doc.font('Helvetica-Bold');
@@ -252,7 +251,7 @@ db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id=
         });
 
         doc.moveDown();
-        doc.font('Helvetica-Bold').text(`Total: $${total.toFixed(2)}`, { align: 'right' });
+        doc.font('Helvetica-Bold').text('Total: $' + total.toFixed(2), { align: 'right' });
 
         doc.end();
     });
@@ -263,5 +262,4 @@ db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id=
 
 // Iniciar servidor
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
-
+app.listen(PORT, () => console.log('Servidor corriendo en puerto ' + PORT));
