@@ -8,17 +8,15 @@ const bodyParser = require('body-parser');
 
 const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.json());
+app.use(express.json()); // Añadí esto para manejar JSON
 app.set('view engine', 'ejs');
 
-// Sesiones básicas (en producción considera usar Redis o MySQL store)
+// Sesiones
 app.use(session({
     secret: process.env.SESSION_SECRET || 'tu_secreto_aqui_123',
     resave: false,
     saveUninitialized: false,
-    cookie: { 
-        maxAge: 1000 * 60 * 60 * 24 // 1 día
-    }
+    cookie: { maxAge: 1000 * 60 * 60 * 24 } // 1 día
 }));
 
 // ---------------- CONEXIÓN MySQL ----------------
@@ -29,14 +27,6 @@ const db = mysql.createPool({
     database: process.env.DB_NAME,
     port: process.env.DB_PORT || 3306,
     connectionLimit: 10
-});
-
-db.getConnection((err, conn) => {
-    if (err) console.error('Error al conectar a la BD:', err);
-    else {
-        console.log('Conexión a la BD correcta');
-        conn.release();
-    }
 });
 
 // Middleware para exponer user en vistas
@@ -50,21 +40,26 @@ app.use((req, res, next) => {
 // Home -> lista productos
 app.get('/', (req, res) => {
     db.query('SELECT * FROM productos', (err, productos) => {
-        if (err) {
-            console.error(err);
-            return res.send('Error BD');
-        }
+        if (err) return res.send('Error BD');
+        res.render('productos', { productos });
+    });
+});
+
+// Mostrar productos (alias)
+app.get('/productos', (req, res) => {
+    db.query('SELECT * FROM productos', (err, productos) => {
+        if (err) return res.send('Error BD');
         res.render('productos', { productos });
     });
 });
 
 // Registrar
 app.get('/register', (req, res) => res.render('register'));
-
 app.post('/register', async (req, res) => {
     const { nombre, correo, password } = req.body;
     if (!nombre || !correo || !password) return res.send('Rellena todos los campos');
 
+    // verificar si existe
     db.query('SELECT id FROM usuarios WHERE correo=?', [correo], async (err, rows) => {
         if (err) return res.send('Error BD');
         if (rows.length > 0) return res.send('Correo ya registrado');
@@ -78,7 +73,6 @@ app.post('/register', async (req, res) => {
 
 // Login
 app.get('/login', (req, res) => res.render('login'));
-
 app.post('/login', (req, res) => {
     const { correo, password } = req.body;
     if (!correo || !password) return res.send('Rellena los campos');
@@ -89,19 +83,20 @@ app.post('/login', (req, res) => {
         const user = rows[0];
         const ok = await bcrypt.compare(password, user.password);
         if (!ok) return res.send('Contraseña incorrecta');
+        // guardar en sesión
         req.session.user = { id: user.id, nombre: user.nombre, correo: user.correo };
         if (!req.session.cart) req.session.cart = {};
-        console.log('Usuario logeado:', req.session.user);
         res.redirect('/');
     });
 });
 
-// Logout
 app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/'));
 });
 
-// ---------------- CART ----------------
+// ---------------- CART (en sesión) ----------------
+
+// Añadir al carrito (POST desde formulario o fetch)
 app.post('/cart/add', (req, res) => {
     const { producto_id, cantidad } = req.body;
     const pid = parseInt(producto_id);
@@ -109,30 +104,40 @@ app.post('/cart/add', (req, res) => {
 
     if (!req.session.cart) req.session.cart = {};
 
-    db.query('SELECT id, nombre, precio, imagen FROM productos WHERE id=?', [pid], (err, rows) => {
-        if (err || rows.length === 0) return res.json({ ok: false });
-        const p = rows[0];
-        if (req.session.cart[pid]) {
-            req.session.cart[pid].cantidad += qty;
-        } else {
-            req.session.cart[pid] = { 
-                producto_id: p.id, 
-                nombre: p.nombre, 
-                precio: parseFloat(p.precio), 
-                cantidad: qty, 
-                imagen: p.imagen 
-            };
-        }
+    // si ya existe incrementar
+    if (req.session.cart[pid]) {
+        req.session.cart[pid].cantidad += qty;
+        return res.json({ ok: true, cart: req.session.cart });
+    } else {
+        // ahora sí, traer también la imagen
+        db.query('SELECT id, nombre, precio, imagen FROM productos WHERE id = ?', [pid], (err, rows) => {
+            if (err || rows.length === 0) {
+                return res.json({ ok: false });
+            }
 
-        console.log('Carrito actualizado:', req.session.cart);
-        res.json({ ok: true, cart: req.session.cart });
-    });
+            const p = rows[0];
+
+            req.session.cart[pid] = {
+                producto_id: p.id,
+                nombre: p.nombre,
+                precio: parseFloat(p.precio),
+                cantidad: qty,
+                imagen: p.imagen   // ← AGREGADO
+            };
+
+            return res.json({ ok: true, cart: req.session.cart });
+        });
+    }
 });
 
+// Obtener carrito (para render o fetch)
 app.get('/cart', (req, res) => {
     const cart = req.session.cart || {};
+    // calcular total
     let total = 0;
-    Object.values(cart).forEach(it => total += it.precio * it.cantidad);
+    for (let k in cart) {
+        total += cart[k].precio * cart[k].cantidad;
+    }
     res.render('carrito', { cart, total });
 });
 
@@ -141,7 +146,9 @@ app.post('/cart/update', (req, res) => {
     const pid = parseInt(producto_id);
     const qty = parseInt(cantidad);
 
-    if (!req.session.cart || !req.session.cart[pid]) return res.json({ ok: false });
+    if (!req.session.cart || !req.session.cart[pid]) {
+        return res.json({ ok: false });
+    }
 
     if (qty <= 0) {
         delete req.session.cart[pid];
@@ -150,19 +157,59 @@ app.post('/cart/update', (req, res) => {
     }
 
     let total = 0;
-    Object.values(req.session.cart).forEach(it => total += it.precio * it.cantidad);
-    res.json({ ok: true, cart: req.session.cart, total });
+    Object.values(req.session.cart).forEach(it => {
+        total += it.precio * it.cantidad;
+    });
+
+    return res.json({
+        ok: true,
+        cart: req.session.cart,
+        total
+    });
 });
 
+// Quitar producto
 app.post('/cart/remove', (req, res) => {
     const pid = parseInt(req.body.producto_id);
-    if (req.session.cart && req.session.cart[pid]) delete req.session.cart[pid];
+    if (req.session.cart && req.session.cart[pid]) {
+        delete req.session.cart[pid];
+    }
     let total = 0;
-    if (req.session.cart) Object.values(req.session.cart).forEach(it => total += it.precio * it.cantidad);
-    res.json({ ok: true, cart: req.session.cart, total });
+    if (req.session.cart) {
+        for (let k in req.session.cart) total += req.session.cart[k].precio * req.session.cart[k].cantidad;
+    }
+    res.json({ ok: true, total, cart: req.session.cart });
 });
 
-// ---------------- CHECKOUT ----------------
+// ---------------- CHECKOUT y HISTORIAL ----------------
+
+// Ver historial (usuario debe estar logeado)
+app.get('/historial', (req, res) => {
+    if (!req.session.user) return res.redirect('/login');
+    const uid = req.session.user.id;
+
+    db.query('SELECT * FROM pedidos WHERE usuario_id=? ORDER BY fecha DESC', [uid], (err, pedidos) => {
+        if (err) return res.send('Error BD');
+        // por cada pedido sacar items
+        const pedidosIds = pedidos.map(p => p.id);
+        if (pedidosIds.length === 0) return res.render('historial', { pedidos: [] });
+
+        db.query('SELECT pi.*, pr.nombre FROM pedido_items pi JOIN productos pr ON pr.id = pi.producto_id WHERE pi.pedido_id IN (?)', [pedidosIds], (err2, items) => {
+            if (err2) return res.send('Error BD');
+            // agrupar items por pedido
+            const mapa = {};
+            items.forEach(it => {
+                if (!mapa[it.pedido_id]) mapa[it.pedido_id] = [];
+                mapa[it.pedido_id].push(it);
+            });
+            // unir
+            pedidos.forEach(p => p.items = mapa[p.id] || []);
+            res.render('historial', { pedidos });
+        });
+    });
+});
+
+// Checkout (crear pedido) — requiere login
 app.post('/checkout', (req, res) => {
     if (!req.session.user) return res.json({ ok: false, msg: 'Debe iniciar sesión' });
     const cart = req.session.cart || {};
@@ -171,73 +218,45 @@ app.post('/checkout', (req, res) => {
 
     const total = items.reduce((s, it) => s + it.precio * it.cantidad, 0);
 
+    // insertar pedido
     db.query('INSERT INTO pedidos (usuario_id, total) VALUES (?, ?)', [req.session.user.id, total], (err, result) => {
         if (err) return res.json({ ok: false, msg: 'Error al crear pedido' });
         const pedidoId = result.insertId;
-        const values = items.map(it => [pedidoId, it.producto_id, it.cantidad, it.precio]);
 
-        if (values.length > 0) {
-            const sql = 'INSERT INTO pedido_items (pedido_id, producto_id, cantidad, precio_unit) VALUES ?';
-            db.query(sql, [values], (err2) => {
-                if (err2) return res.json({ ok: false, msg: 'Error al guardar items' });
-                req.session.cart = {};
-                res.json({ 
-                    ok: true, 
-                    pedidoId,
-                    redirect: `/pedido/${pedidoId}/ticket` // Redirigir directamente al PDF
-                });
-            });
-        } else {
+        // insertar items
+        const values = items.map(it => [pedidoId, it.producto_id, it.cantidad, it.precio]);
+        db.query('INSERT INTO pedido_items (pedido_id, producto_id, cantidad, precio_unit) VALUES ?', [values], (err2) => {
+            if (err2) return res.json({ ok: false, msg: 'Error al guardar items' });
+
+            // limpiar carrito de sesión
             req.session.cart = {};
-            res.json({ 
+
+            // responder con id de pedido y redirección para descargar PDF
+            return res.json({ 
                 ok: true, 
                 pedidoId,
-                redirect: `/pedido/${pedidoId}/ticket` // Redirigir directamente al PDF
+                redirect: `/pedido/${pedidoId}/ticket` // Para redirigir automáticamente
             });
-        }
+        });
     });
 });
 
-// ---------------- TICKET DEL PEDIDO (PDF DIRECTA) ----------------
+// Generar ticket PDF (ruta que descarga o muestra PDF)
 app.get('/pedido/:id/ticket', (req, res) => {
+    const pedidoId = req.params.id;
+    
+    // Verificar si el usuario está logueado
     if (!req.session.user) {
-        // Si no está logueado, redirigir a login
         return res.redirect('/login');
     }
     
-    const pedidoId = req.params.id;
-    
     // buscar pedido e items con verificación de usuario
-    db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id = p.usuario_id WHERE p.id=? AND p.usuario_id=?', 
-        [pedidoId, req.session.user.id], (err, pedidos) => {
-        if (err || pedidos.length === 0) {
-            // Mostrar error en HTML si no se encuentra el pedido
-            return res.send(`
-                <html>
-                <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 50px;">
-                    <h2>Error: Pedido no encontrado</h2>
-                    <p>No se pudo encontrar el pedido #${pedidoId} o no tienes permisos para verlo.</p>
-                    <a href="/">Volver al inicio</a>
-                </body>
-                </html>
-            `);
-        }
+    db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id = p.usuario_id WHERE p.id=? AND p.usuario_id=?', [pedidoId, req.session.user.id], (err, pedidos) => {
+        if (err || pedidos.length === 0) return res.send('Pedido no encontrado o no tienes permisos');
         
         const pedido = pedidos[0];
-        
-        db.query('SELECT pi.*, pr.nombre FROM pedido_items pi JOIN productos pr ON pr.id = pi.producto_id WHERE pi.pedido_id=?', 
-            [pedidoId], (err2, items) => {
-            if (err2) {
-                return res.send(`
-                    <html>
-                    <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 50px;">
-                        <h2>Error al obtener items del pedido</h2>
-                        <p>Hubo un problema al cargar los detalles del pedido.</p>
-                        <a href="/">Volver al inicio</a>
-                    </body>
-                    </html>
-                `);
-            }
+        db.query('SELECT pi.*, pr.nombre FROM pedido_items pi JOIN productos pr ON pr.id = pi.producto_id WHERE pi.pedido_id=?', [pedidoId], (err2, items) => {
+            if (err2) return res.send('Error al obtener items');
 
             const doc = new PDFDocument({ margin: 40 });
 
@@ -249,10 +268,7 @@ app.get('/pedido/:id/ticket', (req, res) => {
             doc.moveDown();
             doc.fontSize(12).text(`Pedido: ${pedido.id}`);
             doc.text(`Usuario: ${pedido.nombre} - ${pedido.correo}`);
-            
-            // Usar el campo correcto de fecha
-            const fechaPedido = pedido.fecha || pedido.fecha_creacion || new Date();
-            doc.text(`Fecha: ${new Date(fechaPedido).toLocaleString()}`);
+            doc.text(`Fecha: ${new Date(pedido.fecha).toLocaleString()}`);
             doc.moveDown();
 
             // Encabezado tabla
@@ -282,16 +298,12 @@ app.get('/pedido/:id/ticket', (req, res) => {
                 y += 20;
             });
 
-            // Total
-            y += 20;
-            doc.font('Helvetica-Bold');
-            doc.text('TOTAL:', 380, y);
-            doc.text(total.toFixed(2), 480, y);
+            // Total final
+            doc.moveDown();
+            doc.font('Helvetica-Bold').text(`Total: $${total.toFixed(2)}`, { align: 'right' });
 
-            doc.moveDown(2);
-            doc.font('Helvetica').fontSize(10);
-            doc.text('Gracias por su compra', { align: 'center' });
-
+            // Finalizar PDF - CORREGIDO: Pipe debe ir antes
+            doc.pipe(res);
             doc.end();
         });
     });
