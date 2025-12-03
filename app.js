@@ -219,7 +219,7 @@ db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id=
         if (err2) return res.send('Error al obtener items');
 
         const doc = new PDFDocument({ margin: 40 });
-        res.setHeader('Content-disposition', `attachment; filename=ticket_${pedidoId}.pdf`);
+        res.setHeader('Content-disposition', 'attachment; filename=ticket_' + pedidoId + '.pdf');
         res.setHeader('Content-type', 'application/pdf');
         doc.pipe(res);
 
@@ -264,3 +264,4 @@ db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id=
 // Iniciar servidor
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
+
