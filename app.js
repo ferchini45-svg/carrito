@@ -17,7 +17,7 @@ app.use(session({
 secret: 'tu_secreto_aqui_123',
 resave: false,
 saveUninitialized: false,
-cookie: { maxAge: 1000 * 60 * 60 * 24 } // 1 día
+cookie: { maxAge: 1000 * 60 * 60 * 24 }
 }));
 
 // ---------------- CONEXIÓN MySQL ----------------
@@ -30,7 +30,6 @@ port: process.env.DB_PORT || 3306,
 connectionLimit: 10
 });
 
-// Probar conexión
 db.getConnection((err, conn) => {
 if (err) console.error('Error al conectar a la BD:', err);
 else {
@@ -46,8 +45,6 @@ next();
 });
 
 // ---------------- RUTAS ----------------
-
-// Home -> lista productos
 app.get('/', (req, res) => {
 db.query('SELECT * FROM productos', (err, productos) => {
 if (err) return res.send('Error BD');
@@ -55,7 +52,7 @@ res.render('productos', { productos });
 });
 });
 
-// Registrar
+// Registro
 app.get('/register', (req, res) => res.render('register'));
 app.post('/register', async (req, res) => {
 const { nombre, correo, password } = req.body;
@@ -100,12 +97,13 @@ db.query('SELECT * FROM usuarios WHERE correo=?', [correo], async (err, rows) =>
 });
 
 app.get('/logout', (req, res) => {
-req.session.destroy(() => res.redirect('/'));
+req.session.destroy(err => {
+if (err) console.error(err);
+res.redirect('/');
+});
 });
 
 // ---------------- CARRITO ----------------
-
-// Añadir al carrito
 app.post('/cart/add', (req, res) => {
 const { producto_id, cantidad } = req.body;
 const pid = parseInt(producto_id);
@@ -137,7 +135,6 @@ db.query('SELECT id, nombre, precio, imagen FROM productos WHERE id=?', [pid], (
 
 });
 
-// Obtener carrito
 app.get('/cart', (req, res) => {
 const cart = req.session.cart || {};
 let total = 0;
@@ -145,7 +142,6 @@ Object.values(cart).forEach(it => total += it.precio * it.cantidad);
 res.render('carrito', { cart, total });
 });
 
-// Actualizar carrito
 app.post('/cart/update', (req, res) => {
 const { producto_id, cantidad } = req.body;
 const pid = parseInt(producto_id);
@@ -164,7 +160,6 @@ res.json({ ok: true, cart: req.session.cart, total });
 
 });
 
-// Quitar producto
 app.post('/cart/remove', (req, res) => {
 const pid = parseInt(req.body.producto_id);
 if (req.session.cart && req.session.cart[pid]) delete req.session.cart[pid];
@@ -194,18 +189,23 @@ db.query('INSERT INTO pedidos (usuario_id, total) VALUES (?, ?)', [req.session.u
     const pedidoId = result.insertId;
     const values = items.map(it => [pedidoId, it.producto_id, it.cantidad, it.precio]);
 
+    if (values.length === 0) {
+        req.session.cart = {};
+        return res.json({ ok: true, pedidoId });
+    }
+
     db.query('INSERT INTO pedido_items (pedido_id, producto_id, cantidad, precio_unit) VALUES ?', [values], (err2) => {
         if (err2) return res.json({ ok: false, msg: 'Error al guardar items' });
 
         req.session.cart = {};
-        res.json({ ok: true, pedidoId: pedidoId });
+        res.json({ ok: true, pedidoId });
     });
 });
 ```
 
 });
 
-// Generar ticket PDF
+// ---------------- PDF TICKET ----------------
 app.get('/pedido/:id/ticket', (req, res) => {
 const pedidoId = req.params.id;
 
@@ -260,6 +260,7 @@ db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id=
 
 });
 
-// Iniciar servidor
+// ---------------- INICIAR SERVIDOR ----------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Servidor corriendo en puerto ' + PORT));
+
