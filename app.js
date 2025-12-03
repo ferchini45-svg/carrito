@@ -11,21 +11,13 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json());
 app.set('view engine', 'ejs');
 
-// Para la advertencia de MemoryStore en producción
-const MemoryStore = require('memorystore')(session);
-
-// Sesiones mejoradas para producción
+// Sesiones básicas (en producción considera usar Redis o MySQL store)
 app.use(session({
     secret: process.env.SESSION_SECRET || 'tu_secreto_aqui_123',
     resave: false,
     saveUninitialized: false,
-    store: new MemoryStore({
-        checkPeriod: 86400000 // Limpiar entradas expiradas cada 24h
-    }),
     cookie: { 
-        maxAge: 1000 * 60 * 60 * 24, // 1 día
-        secure: process.env.NODE_ENV === 'production', // Solo HTTPS en producción
-        sameSite: 'strict'
+        maxAge: 1000 * 60 * 60 * 24 // 1 día
     }
 }));
 
@@ -302,79 +294,6 @@ app.get('/pedido/:id/ticket', (req, res) => {
 
             doc.end();
         });
-    });
-});
-
-// ---------------- HISTORIAL DE PEDIDOS ----------------
-app.get('/mis-pedidos', (req, res) => {
-    if (!req.session.user) return res.redirect('/login');
-    
-    db.query(`
-        SELECT p.*, 
-               COUNT(pi.id) as total_items,
-               SUM(pi.cantidad) as total_productos
-        FROM pedidos p
-        LEFT JOIN pedido_items pi ON p.id = pi.pedido_id
-        WHERE p.usuario_id = ?
-        GROUP BY p.id
-        ORDER BY p.fecha_creacion DESC
-    `, [req.session.user.id], (err, pedidos) => {
-        if (err) return res.status(500).send('Error al obtener pedidos');
-        
-        // Renderizar página simple de historial
-        res.send(`
-            <!DOCTYPE html>
-            <html lang="es">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Mis Pedidos</title>
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-            </head>
-            <body>
-                <div class="container mt-4">
-                    <h1>📋 Mis Pedidos</h1>
-                    
-                    ${pedidos.length === 0 ? 
-                        '<div class="alert alert-info">No tienes pedidos aún. <a href="/">¡Empieza a comprar!</a></div>' : 
-                        `
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Pedido ID</th>
-                                    <th>Fecha</th>
-                                    <th>Total</th>
-                                    <th>Productos</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${pedidos.map(pedido => `
-                                    <tr>
-                                        <td>#${pedido.id}</td>
-                                        <td>${new Date(pedido.fecha_creacion).toLocaleString('es-MX')}</td>
-                                        <td>$${parseFloat(pedido.total).toFixed(2)}</td>
-                                        <td>${pedido.total_productos || 0}</td>
-                                        <td>
-                                            <a href="/pedido/${pedido.id}/ticket" class="btn btn-sm btn-primary">
-                                                Descargar Ticket
-                                            </a>
-                                        </td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                        `
-                    }
-                    
-                    <div class="mt-3">
-                        <a href="/" class="btn btn-success">🛒 Seguir comprando</a>
-                        <a href="/cart" class="btn btn-outline-primary">🛍️ Ver carrito</a>
-                    </div>
-                </div>
-            </body>
-            </html>
-        `);
     });
 });
 
