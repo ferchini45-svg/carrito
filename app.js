@@ -21,14 +21,24 @@ app.use(session({
 }));
 
 // ---------------------- CONEXIÓN MYSQL ----------------------
-// Usa tus datos REALES de Hostinger
+// Render NO puede usar localhost, debes usar la DB remota
+// Crea una base de datos en Render Database / PlanetScale / Railway
 const db = mysql.createPool({
-    host: process.env.DB_HOST,       // <---- MUY IMPORTANTE
-    user: process.env.DB_USER,
-    password: process.env.DB_PASS,
-    database: process.env.DB_NAME,
-    port: 3306,
+    host: process.env.DB_HOST,       // host de la DB remota
+    user: process.env.DB_USER,       // usuario de la DB
+    password: process.env.DB_PASS,   // contraseña de la DB
+    database: process.env.DB_NAME,   // nombre de la DB
+    port: process.env.DB_PORT || 3306,
     connectionLimit: 10
+});
+
+// Opcional: probar conexión
+db.getConnection((err, connection) => {
+    if(err) console.error('Error al conectar a la BD:', err);
+    else {
+        console.log('Conexión a la BD correcta');
+        connection.release();
+    }
 });
 
 // ---------------------- MIDDLEWARE ----------------------
@@ -247,4 +257,5 @@ app.get('/pedido/:id/ticket', (req, res) => {
 // ---------------------- SERVER ----------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
+
 
