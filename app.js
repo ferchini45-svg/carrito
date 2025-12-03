@@ -192,7 +192,7 @@ app.post('/checkout', (req, res) => {
                 res.json({ 
                     ok: true, 
                     pedidoId,
-                    redirect: `/pedido/${pedidoId}/ticket` // Redirigir al ticket
+                    redirect: `/pedido/${pedidoId}/ticket` // Redirigir directamente al PDF
                 });
             });
         } else {
@@ -200,28 +200,52 @@ app.post('/checkout', (req, res) => {
             res.json({ 
                 ok: true, 
                 pedidoId,
-                redirect: `/pedido/${pedidoId}/ticket` // Redirigir al ticket
+                redirect: `/pedido/${pedidoId}/ticket` // Redirigir directamente al PDF
             });
         }
     });
 });
 
-// ---------------- TICKET DEL PEDIDO (PDF) ----------------
+// ---------------- TICKET DEL PEDIDO (PDF DIRECTA) ----------------
 app.get('/pedido/:id/ticket', (req, res) => {
-    if (!req.session.user) return res.redirect('/login');
+    if (!req.session.user) {
+        // Si no está logueado, redirigir a login
+        return res.redirect('/login');
+    }
     
     const pedidoId = req.params.id;
     
-    // buscar pedido e items
+    // buscar pedido e items con verificación de usuario
     db.query('SELECT p.*, u.nombre, u.correo FROM pedidos p JOIN usuarios u ON u.id = p.usuario_id WHERE p.id=? AND p.usuario_id=?', 
         [pedidoId, req.session.user.id], (err, pedidos) => {
-        if (err || pedidos.length === 0) return res.send('Pedido no encontrado');
+        if (err || pedidos.length === 0) {
+            // Mostrar error en HTML si no se encuentra el pedido
+            return res.send(`
+                <html>
+                <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 50px;">
+                    <h2>Error: Pedido no encontrado</h2>
+                    <p>No se pudo encontrar el pedido #${pedidoId} o no tienes permisos para verlo.</p>
+                    <a href="/">Volver al inicio</a>
+                </body>
+                </html>
+            `);
+        }
         
         const pedido = pedidos[0];
         
         db.query('SELECT pi.*, pr.nombre FROM pedido_items pi JOIN productos pr ON pr.id = pi.producto_id WHERE pi.pedido_id=?', 
             [pedidoId], (err2, items) => {
-            if (err2) return res.send('Error al obtener items');
+            if (err2) {
+                return res.send(`
+                    <html>
+                    <body style="font-family: Arial, sans-serif; text-align: center; margin-top: 50px;">
+                        <h2>Error al obtener items del pedido</h2>
+                        <p>Hubo un problema al cargar los detalles del pedido.</p>
+                        <a href="/">Volver al inicio</a>
+                    </body>
+                    </html>
+                `);
+            }
 
             const doc = new PDFDocument({ margin: 40 });
 
@@ -234,7 +258,7 @@ app.get('/pedido/:id/ticket', (req, res) => {
             doc.fontSize(12).text(`Pedido: ${pedido.id}`);
             doc.text(`Usuario: ${pedido.nombre} - ${pedido.correo}`);
             
-            // Usar el campo correcto de fecha (puede ser 'fecha' o 'fecha_creacion')
+            // Usar el campo correcto de fecha
             const fechaPedido = pedido.fecha || pedido.fecha_creacion || new Date();
             doc.text(`Fecha: ${new Date(fechaPedido).toLocaleString()}`);
             doc.moveDown();
@@ -281,49 +305,6 @@ app.get('/pedido/:id/ticket', (req, res) => {
     });
 });
 
-// ---------------- PÁGINA DE CONFIRMACIÓN HTML ----------------
-app.get('/pedido/:id/confirmacion', (req, res) => {
-    if (!req.session.user) return res.redirect('/login');
-    
-    const pedidoId = req.params.id;
-    
-    // Obtener información del pedido para mostrar en HTML
-    db.query(`
-        SELECT p.*, u.nombre, u.correo 
-        FROM pedidos p 
-        JOIN usuarios u ON u.id = p.usuario_id 
-        WHERE p.id=? AND p.usuario_id=?
-    `, [pedidoId, req.session.user.id], (err, pedidos) => {
-        if (err || pedidos.length === 0) return res.send('Pedido no encontrado');
-        
-        const pedido = pedidos[0];
-        
-        db.query(`
-            SELECT pi.*, pr.nombre as producto_nombre 
-            FROM pedido_items pi 
-            JOIN productos pr ON pr.id = pi.producto_id 
-            WHERE pi.pedido_id=?
-        `, [pedidoId], (err2, items) => {
-            if (err2) return res.send('Error al obtener items');
-            
-            // Calcular total
-            const total = items.reduce((sum, item) => {
-                return sum + (Number(item.precio_unit) || 0) * Number(item.cantidad);
-            }, 0);
-            
-            const fechaPedido = pedido.fecha || pedido.fecha_creacion || new Date();
-            
-            res.render('confirmacion-pedido', {
-                pedido,
-                items,
-                total,
-                fecha: new Date(fechaPedido).toLocaleString(),
-                pedidoId
-            });
-        });
-    });
-});
-
 // ---------------- HISTORIAL DE PEDIDOS ----------------
 app.get('/mis-pedidos', (req, res) => {
     if (!req.session.user) return res.redirect('/login');
@@ -339,15 +320,64 @@ app.get('/mis-pedidos', (req, res) => {
         ORDER BY p.fecha_creacion DESC
     `, [req.session.user.id], (err, pedidos) => {
         if (err) return res.status(500).send('Error al obtener pedidos');
-        res.render('mis-pedidos', { pedidos });
+        
+        // Renderizar página simple de historial
+        res.send(`
+            <!DOCTYPE html>
+            <html lang="es">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Mis Pedidos</title>
+                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+            </head>
+            <body>
+                <div class="container mt-4">
+                    <h1>📋 Mis Pedidos</h1>
+                    
+                    ${pedidos.length === 0 ? 
+                        '<div class="alert alert-info">No tienes pedidos aún. <a href="/">¡Empieza a comprar!</a></div>' : 
+                        `
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Pedido ID</th>
+                                    <th>Fecha</th>
+                                    <th>Total</th>
+                                    <th>Productos</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${pedidos.map(pedido => `
+                                    <tr>
+                                        <td>#${pedido.id}</td>
+                                        <td>${new Date(pedido.fecha_creacion).toLocaleString('es-MX')}</td>
+                                        <td>$${parseFloat(pedido.total).toFixed(2)}</td>
+                                        <td>${pedido.total_productos || 0}</td>
+                                        <td>
+                                            <a href="/pedido/${pedido.id}/ticket" class="btn btn-sm btn-primary">
+                                                Descargar Ticket
+                                            </a>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        `
+                    }
+                    
+                    <div class="mt-3">
+                        <a href="/" class="btn btn-success">🛒 Seguir comprando</a>
+                        <a href="/cart" class="btn btn-outline-primary">🛍️ Ver carrito</a>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `);
     });
 });
 
 // ---------------- INICIAR SERVIDOR ----------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en puerto ${PORT}`));
-
-
-
-
-
